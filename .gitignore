@@ -1,0 +1,11 @@
+build/
+build-*/
+*.obj
+*.dll
+*.exe
+*.lib
+*.exp
+*.pdb
+*.nupkg
+artifacts/
+packaging/staging/

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
+  <metadata>
+    <id>Arcademia.Leaderboards.Cpp</id>
+    <version>1.0.0</version>
+    <authors>Arcademia</authors>
+    <description>Submit high scores and let players claim them to their Arcademia account, from any native C++ game running on an Arcademia arcade cabinet or on a developer's own machine (sandbox mode). Windows x64. See the online SDK docs for full usage.</description>
+    <license type="expression">MIT</license>
+    <projectUrl>https://manager.arcademia.ac/docs</projectUrl>
+    <repository type="git" url="https://github.com/Arcademia-Project/Arcademia-Leaderboards-Cpp" />
+    <tags>arcademia leaderboards native cpp arcade</tags>
+    <readme>README.md</readme>
+  </metadata>
+  <files>
+    <file src="include\arcademia_leaderboards.h" target="include\" />
+    <file src="packaging\native\Arcademia.Leaderboards.Cpp.targets" target="build\native\" />
+    <file src="packaging\staging\lib\x64\Release\arcademia_leaderboards.lib" target="lib\x64\Release\" />
+    <file src="packaging\staging\runtimes\x64\Release\arcademia_leaderboards.dll" target="runtimes\x64\Release\" />
+    <file src="README.md" target="\" />
+  </files>
+</package>

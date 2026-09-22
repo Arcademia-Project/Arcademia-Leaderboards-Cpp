@@ -1,0 +1,48 @@
+name: Publish to NuGet
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-and-publish:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Configure (MSVC via vcvarsall, Ninja, Release)
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Stage package contents
+        run: |
+          New-Item -ItemType Directory -Force -Path packaging\staging\lib\x64\Release
+          New-Item -ItemType Directory -Force -Path packaging\staging\runtimes\x64\Release
+          Copy-Item build\arcademia_leaderboards.lib packaging\staging\lib\x64\Release\
+          Copy-Item build\arcademia_leaderboards.dll packaging\staging\runtimes\x64\Release\
+        shell: pwsh
+
+      - uses: nuget/setup-nuget@v2
+
+      - name: nuget pack
+        run: nuget pack Arcademia.Leaderboards.Cpp.nuspec -OutputDirectory artifacts
+
+      - name: NuGet login (OIDC to temp API key)
+        uses: NuGet/login@v1
+        id: login
+        with:
+          user: ${{ secrets.NUGET_USER }}
+
+      - name: NuGet push
+        run: dotnet nuget push artifacts\*.nupkg --api-key ${{ steps.login.outputs.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
