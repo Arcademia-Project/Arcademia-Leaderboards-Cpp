@@ -25,7 +25,7 @@ int main()
     std::string last_score_id;
     for (;;)
     {
-        std::cout << std::endl << "1) Ping  2) Submit random score  3) Fetch test scores  4) Claim last score  5) Quit" << std::endl << "> ";
+        std::cout << std::endl << "1) Ping  2) Submit random score  3) Fetch test scores  4) Claim last score  5) Quit  6) Fetch every scope" << std::endl << "> ";
         std::string choice;
         std::getline(std::cin, choice);
 
@@ -40,6 +40,13 @@ int main()
             long long value = 100 + (rand() % 99900);
             const char* result = arcademia_leaderboards_submit_score(board_slug.c_str(), value, "REX", nullptr, nullptr);
             std::cout << result << std::endl;
+            std::string text = result;
+            auto key = text.find("\"ScoreId\":\"");
+            if (key != std::string::npos)
+            {
+                auto start = key + 11;
+                last_score_id = text.substr(start, text.find('"', start) - start);
+            }
             arcademia_leaderboards_free(result);
         }
         else if (choice == "3")
@@ -62,6 +69,17 @@ int main()
         else if (choice == "5")
         {
             break;
+        }
+        else if (choice == "6")
+        {
+            const int scopes[] = { ARCADEMIA_SCOPE_LOCAL, ARCADEMIA_SCOPE_INSTITUTIONAL, ARCADEMIA_SCOPE_COUNTRY, ARCADEMIA_SCOPE_GLOBAL };
+            for (int scope : scopes)
+            {
+                const char* result = arcademia_leaderboards_get_scores(
+                    board_slug.c_str(), scope, "1-5", last_score_id.empty() ? nullptr : last_score_id.c_str(), 2, 2, 1);
+                std::cout << result << std::endl;
+                arcademia_leaderboards_free(result);
+            }
         }
     }
 

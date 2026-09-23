@@ -308,7 +308,7 @@ const char* arcademia_leaderboards_get_test_scores(const char* board_slug, int l
     }
 
     std::string slug = board_slug != nullptr ? board_slug : "";
-    std::string path = "/api/Sdk/Leaderboards/" + UrlEncode(slug) + "/scores?limit=" + std::to_string(limit) + "&offset=" + std::to_string(offset);
+    std::string path = "/api/Sdk/Leaderboards/" + UrlEncode(slug) + "/scores?mode=all&limit=" + std::to_string(limit) + "&offset=" + std::to_string(offset);
 
     auto response = SandboxGet(g_settings.api_base, path, g_settings.api_key);
     if (!response.ok())
@@ -337,6 +337,140 @@ const char* arcademia_leaderboards_get_test_scores(const char* board_slug, int l
         }
     }
     result["Scores"] = scores;
+    return AllocResult(result.dump());
+}
+
+namespace
+{
+    const char* ScopeName(int scope)
+    {
+        switch (scope)
+        {
+            case ARCADEMIA_SCOPE_LOCAL: return "local";
+            case ARCADEMIA_SCOPE_INSTITUTIONAL: return "institutional";
+            case ARCADEMIA_SCOPE_COUNTRY: return "country";
+            default: return "global";
+        }
+    }
+
+    const char* ScopeLabel(int scope)
+    {
+        switch (scope)
+        {
+            case ARCADEMIA_SCOPE_LOCAL: return "Local";
+            case ARCADEMIA_SCOPE_INSTITUTIONAL: return "Institutional";
+            case ARCADEMIA_SCOPE_COUNTRY: return "Country";
+            default: return "Global";
+        }
+    }
+
+    json ToScoreRow(const json& row)
+    {
+        auto text = [&](const char* key) { return row.contains(key) && row[key].is_string() ? row[key] : json(nullptr); };
+        return {
+            {"Rank", row.value("rank", 0)},
+            {"PlayerName", row.value("playerName", std::string())},
+            {"Value", row.value("value", (long long)0)},
+            {"AchievedAt", row.value("achievedAt", std::string())},
+            {"Claimed", row.value("claimed", false)},
+            {"IsPlayer", row.value("isPlayer", false)},
+            {"MachineName", text("machineName")},
+            {"SiteName", text("siteName")},
+            {"Country", text("country")},
+        };
+    }
+
+    json ToScoreRows(const json& dto, const char* key)
+    {
+        json rows = json::array();
+        if (dto.contains(key) && dto[key].is_array())
+            for (auto& row : dto[key])
+                rows.push_back(ToScoreRow(row));
+        return rows;
+    }
+}
+
+const char* arcademia_leaderboards_get_scores(
+    const char* board_slug,
+    int scope,
+    const char* ranks,
+    const char* player_score_id,
+    int before,
+    int after,
+    int best_per_player)
+{
+    EnsureInitialised();
+    json result;
+
+    std::string slug = board_slug != nullptr ? board_slug : "";
+    std::string scope_name = ScopeName(scope);
+    std::string mode = best_per_player ? "best" : "all";
+    std::string mode_label = g_launcher != nullptr ? "Launcher" : "Sandbox";
+
+    if (slug.empty())
+    {
+        result = { {"Success", false}, {"Message", "boardSlug is required."}, {"Mode", mode_label}, {"Scope", ScopeLabel(scope)} };
+        return AllocResult(result.dump());
+    }
+
+    json dto;
+
+    if (g_launcher != nullptr)
+    {
+        json fields;
+        fields["boardSlug"] = slug;
+        fields["apiKey"] = g_settings.api_key;
+        fields["scope"] = scope_name;
+        fields["mode"] = mode;
+        fields["before"] = before;
+        fields["after"] = after;
+        if (ranks != nullptr)
+            fields["ranks"] = ranks;
+        if (player_score_id != nullptr && player_score_id[0] != '\0')
+            fields["scoreId"] = player_score_id;
+
+        std::string raw;
+        if (!g_launcher->Send("getScores", fields.dump(), kDefaultResponseTimeoutMs, raw))
+        {
+            result = { {"Success", false}, {"Message", "The launcher did not respond in time."}, {"Mode", mode_label}, {"Scope", ScopeLabel(scope)} };
+            return AllocResult(result.dump());
+        }
+
+        dto = ParseOrEmpty(raw);
+        if (!dto.value("ok", false))
+        {
+            result = { {"Success", false}, {"Message", dto.value("message", dto.value("error", std::string()))}, {"Mode", mode_label}, {"Scope", ScopeLabel(scope)} };
+            return AllocResult(result.dump());
+        }
+    }
+    else
+    {
+        std::string path = "/api/Sdk/Leaderboards/" + UrlEncode(slug) + "/scores?scope=" + scope_name
+            + "&mode=" + mode + "&before=" + std::to_string(before) + "&after=" + std::to_string(after);
+        if (ranks != nullptr)
+            path += "&ranks=" + UrlEncode(ranks);
+        if (player_score_id != nullptr && player_score_id[0] != '\0')
+            path += "&scoreId=" + UrlEncode(player_score_id);
+
+        auto response = SandboxGet(g_settings.api_base, path, g_settings.api_key);
+        if (!response.ok())
+        {
+            result = { {"Success", false}, {"Message", Describe(response)}, {"Mode", mode_label}, {"Scope", ScopeLabel(scope)} };
+            return AllocResult(result.dump());
+        }
+        dto = ParseOrEmpty(response.body);
+    }
+
+    result["Success"] = true;
+    result["Mode"] = mode_label;
+    result["BoardSlug"] = dto.contains("board") ? dto["board"].value("slug", json(nullptr)) : json(nullptr);
+    result["BoardName"] = dto.contains("board") ? dto["board"].value("name", json(nullptr)) : json(nullptr);
+    result["Scope"] = ScopeLabel(scope);
+    result["BestPerPlayer"] = dto.value("mode", std::string("best")) != "all";
+    result["Total"] = dto.value("total", 0);
+    result["Scores"] = ToScoreRows(dto, "scores");
+    result["Player"] = dto.contains("player") && dto["player"].is_object() ? ToScoreRow(dto["player"]) : json(nullptr);
+    result["Around"] = ToScoreRows(dto, "around");
     return AllocResult(result.dump());
 }
 

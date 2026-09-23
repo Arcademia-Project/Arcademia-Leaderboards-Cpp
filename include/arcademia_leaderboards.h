@@ -20,6 +20,11 @@ extern "C" {
 #define ARCADEMIA_MODE_SANDBOX 0
 #define ARCADEMIA_MODE_LAUNCHER 1
 
+#define ARCADEMIA_SCOPE_LOCAL 0
+#define ARCADEMIA_SCOPE_INSTITUTIONAL 1
+#define ARCADEMIA_SCOPE_COUNTRY 2
+#define ARCADEMIA_SCOPE_GLOBAL 3
+
 ARCADEMIA_API void arcademia_leaderboards_init(void);
 ARCADEMIA_API void arcademia_leaderboards_shutdown(void);
 ARCADEMIA_API int arcademia_leaderboards_mode(void);
@@ -39,6 +44,15 @@ ARCADEMIA_API const char* arcademia_leaderboards_get_test_scores(
     const char* board_slug,
     int limit,
     int offset);
+
+ARCADEMIA_API const char* arcademia_leaderboards_get_scores(
+    const char* board_slug,
+    int scope,
+    const char* ranks,
+    const char* player_score_id,
+    int before,
+    int after,
+    int best_per_player);
 
 ARCADEMIA_API const char* arcademia_leaderboards_request_claim(const char* score_id);
 

@@ -2,7 +2,7 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
   <metadata>
     <id>Arcademia.Leaderboards.Cpp</id>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <authors>Arcademia</authors>
     <description>Submit high scores and let players claim them to their Arcademia account, from any native C++ game running on an Arcademia arcade cabinet or on a developer's own machine (sandbox mode). Windows x64. See the online SDK docs for full usage.</description>
     <license type="expression">MIT</license>

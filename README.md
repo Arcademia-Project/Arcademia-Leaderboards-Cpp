@@ -190,6 +190,49 @@ returns immediately with `Status = "rejected"`, since there's no cabinet
 to show a QR code on and test scores can't be claimed anyway. Feel free
 to call it unconditionally.
 
+### `const char* arcademia_leaderboards_get_scores(const char* board_slug, int scope, const char* ranks, const char* player_score_id, int before, int after, int best_per_player)`
+Loads a leaderboard to show in your game. You decide what comes back:
+which group of players to rank against, which positions to include, and
+whether to include the current player's own position with the players
+either side of them.
+
+- `scope`: one of `ARCADEMIA_SCOPE_LOCAL` (this cabinet),
+  `ARCADEMIA_SCOPE_INSTITUTIONAL` (every cabinet at the same
+  institution), `ARCADEMIA_SCOPE_COUNTRY` (every cabinet in the same
+  country) or `ARCADEMIA_SCOPE_GLOBAL`. The cabinet, institution and
+  country are worked out on the server from the play session, so there's
+  nothing to pass in for them.
+- `ranks`: which positions to return, e.g. `"1-10"` or `"1-3,10,50-55"`.
+  `"none"` skips the ranked list. `NULL` gives you the top of the board
+  up to its display cap. A request can cover up to 200 positions.
+- `player_score_id`: the `ScoreId` from `submit_score`, to find the
+  player's own position. `NULL` to skip.
+- `before` / `after`: how many scores either side of the player to
+  include (0 to 50).
+- `best_per_player`: `1` ranks each player's best score, `0` ranks every
+  submission.
+
+```cpp
+const char* json = arcademia_leaderboards_get_scores(
+    "highscore", ARCADEMIA_SCOPE_COUNTRY, "1-10", last_score_id, 2, 2, 1);
+arcademia_leaderboards_free(json);
+```
+
+```json
+{
+  "Success": true, "Mode": "Launcher", "Scope": "Country", "BestPerPlayer": true,
+  "BoardSlug": "highscore", "BoardName": "High Score", "Total": 118,
+  "Scores": [ { "Rank": 1, "PlayerName": "REX", "Value": 99999, "AchievedAt": "...", "Claimed": false, "IsPlayer": false, "MachineName": "Bartik", "SiteName": "University of Lincoln", "Country": "United Kingdom" } ],
+  "Player": { "Rank": 42, "PlayerName": "MAL", "IsPlayer": true, "...": "..." },
+  "Around": [ "ranks 40 to 44, in order" ]
+}
+```
+
+`Player` is `null` if you didn't pass a score id or the score isn't in
+that scope. For a screen with a tab per scope, call it once per scope.
+In sandbox mode it reads your test scores, and every scope returns the
+same list because test scores don't come from a cabinet.
+
 ### `const char* arcademia_leaderboards_get_test_scores(const char* board_slug, int limit, int offset)`
 Reads back scores from the sandbox test area, i.e. whatever you or
 another dev submitted while not on a cabinet. Only works in sandbox mode
