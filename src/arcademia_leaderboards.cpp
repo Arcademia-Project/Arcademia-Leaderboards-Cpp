@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <string>
 #include <cstring>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -31,6 +32,11 @@ namespace
 
     const int kClaimResponseTimeoutMs = 6 * 60 * 1000;
     const int kDefaultResponseTimeoutMs = 35000;
+    const int kSandboxClaimPollMs = 2000;
+    const int kSandboxClaimMaxWaitMs = 6 * 60 * 1000;
+
+    arcademia_leaderboards_claim_link_callback g_claim_link_callback = nullptr;
+    void* g_claim_link_user_data = nullptr;
 
     const char* AllocResult(const std::string& s)
     {
@@ -377,6 +383,7 @@ namespace
             {"MachineName", text("machineName")},
             {"SiteName", text("siteName")},
             {"Country", text("country")},
+            {"Metadata", text("metadata")},
         };
     }
 
@@ -474,6 +481,14 @@ const char* arcademia_leaderboards_get_scores(
     return AllocResult(result.dump());
 }
 
+void arcademia_leaderboards_set_claim_link_callback(
+    arcademia_leaderboards_claim_link_callback callback,
+    void* user_data)
+{
+    g_claim_link_callback = callback;
+    g_claim_link_user_data = user_data;
+}
+
 const char* arcademia_leaderboards_request_claim(const char* score_id)
 {
     EnsureInitialised();
@@ -488,8 +503,44 @@ const char* arcademia_leaderboards_request_claim(const char* score_id)
 
     if (g_launcher == nullptr)
     {
-        result = { {"Success", false}, {"Status", "rejected"},
-            {"Message", "Claiming a score requires running through the Arcademia launcher."}, {"Mode", "Sandbox"} };
+        auto response = SandboxPost(g_settings.api_base, "/api/Sdk/Scores/" + UrlEncode(id) + "/Claim", g_settings.api_key, "{}");
+        if (!response.ok())
+        {
+            result = { {"Success", false}, {"Status", "rejected"}, {"ScoreId", id}, {"PlayerName", nullptr},
+                {"ClaimUrl", nullptr}, {"Message", Describe(response)}, {"Mode", "Sandbox"} };
+            return AllocResult(result.dump());
+        }
+
+        json created = ParseOrEmpty(response.body);
+        std::string claim_url = created.value("claimUrl", std::string());
+        json status_body = { {"code", created.value("code", std::string())} };
+
+        std::string notice = "[Arcademia] Open this link to claim the test score: " + claim_url + "\n";
+        OutputDebugStringA(notice.c_str());
+        std::fprintf(stderr, "%s", notice.c_str());
+        if (g_claim_link_callback != nullptr)
+            g_claim_link_callback(claim_url.c_str(), g_claim_link_user_data);
+
+        std::string status = "expired";
+        json name = nullptr;
+        for (int waited = 0; waited < kSandboxClaimMaxWaitMs; waited += kSandboxClaimPollMs)
+        {
+            Sleep(kSandboxClaimPollMs);
+            auto poll = SandboxPost(g_settings.api_base, "/api/Sdk/Claims/Status", g_settings.api_key, status_body.dump());
+            if (!poll.ok())
+                continue;
+            json state = ParseOrEmpty(poll.body);
+            std::string current = state.value("status", std::string("pending"));
+            if (current == "pending")
+                continue;
+            status = current;
+            if (state.contains("playerName") && state["playerName"].is_string())
+                name = state["playerName"];
+            break;
+        }
+
+        result = { {"Success", status == "saved"}, {"Status", status}, {"ScoreId", id}, {"PlayerName", name},
+            {"ClaimUrl", claim_url}, {"Message", nullptr}, {"Mode", "Sandbox"} };
         return AllocResult(result.dump());
     }
 
@@ -500,7 +551,8 @@ const char* arcademia_leaderboards_request_claim(const char* score_id)
     std::string raw;
     if (!g_launcher->Send("requestClaim", fields.dump(), kClaimResponseTimeoutMs, raw))
     {
-        result = { {"Success", false}, {"Status", "error"}, {"Message", "The launcher did not respond in time."}, {"Mode", "Launcher"} };
+        result = { {"Success", false}, {"Status", "error"}, {"ScoreId", id}, {"PlayerName", nullptr},
+            {"Message", "The launcher did not respond in time."}, {"Mode", "Launcher"} };
         return AllocResult(result.dump());
     }
 
@@ -508,7 +560,7 @@ const char* arcademia_leaderboards_request_claim(const char* score_id)
     bool ok = dto.value("ok", false);
     if (!ok)
     {
-        result = { {"Success", false}, {"Status", "error"},
+        result = { {"Success", false}, {"Status", "error"}, {"ScoreId", id}, {"PlayerName", nullptr},
             {"Message", dto.value("message", dto.value("error", std::string()))}, {"Mode", "Launcher"} };
         return AllocResult(result.dump());
     }
@@ -516,6 +568,74 @@ const char* arcademia_leaderboards_request_claim(const char* score_id)
     std::string status = dto.value("status", std::string());
     result["Success"] = status == "saved";
     result["Status"] = status;
+    result["ScoreId"] = id;
+    result["PlayerName"] = dto.contains("playerName") && dto["playerName"].is_string() ? dto["playerName"] : json(nullptr);
+    result["Message"] = dto.value("message", json(nullptr));
+    result["Mode"] = "Launcher";
+    return AllocResult(result.dump());
+}
+
+const char* arcademia_leaderboards_set_player_name(const char* score_id, const char* player_name)
+{
+    EnsureInitialised();
+    json result;
+
+    std::string id = score_id != nullptr ? score_id : "";
+    std::string name = player_name != nullptr ? player_name : "";
+    if (id.empty())
+    {
+        result = { {"Success", false}, {"Status", "error"}, {"Message", "scoreId is required."}, {"Mode", ModeString()} };
+        return AllocResult(result.dump());
+    }
+
+    if (g_launcher == nullptr)
+    {
+        json body = json::object();
+        if (!name.empty())
+            body["playerName"] = name;
+
+        auto response = SandboxPost(g_settings.api_base, "/api/Sdk/Scores/" + UrlEncode(id) + "/Name", g_settings.api_key, body.dump());
+        if (!response.ok())
+        {
+            result = { {"Success", false}, {"Status", "rejected"}, {"ScoreId", id}, {"PlayerName", nullptr},
+                {"Message", Describe(response)}, {"Mode", "Sandbox"} };
+            return AllocResult(result.dump());
+        }
+
+        json dto = ParseOrEmpty(response.body);
+        auto saved = dto.contains("playerName") && dto["playerName"].is_string() ? dto["playerName"] : json(nullptr);
+        result = { {"Success", true}, {"Status", "saved"}, {"ScoreId", id}, {"PlayerName", saved},
+            {"Message", nullptr}, {"Mode", "Sandbox"} };
+        return AllocResult(result.dump());
+    }
+
+    json fields;
+    fields["scoreId"] = id;
+    fields["apiKey"] = g_settings.api_key;
+    if (!name.empty())
+        fields["playerName"] = name;
+
+    std::string raw;
+    if (!g_launcher->Send("setPlayerName", fields.dump(), kDefaultResponseTimeoutMs, raw))
+    {
+        result = { {"Success", false}, {"Status", "error"}, {"ScoreId", id}, {"PlayerName", nullptr},
+            {"Message", "The launcher did not respond in time."}, {"Mode", "Launcher"} };
+        return AllocResult(result.dump());
+    }
+
+    json dto = ParseOrEmpty(raw);
+    if (!dto.value("ok", false))
+    {
+        result = { {"Success", false}, {"Status", "error"}, {"ScoreId", id}, {"PlayerName", nullptr},
+            {"Message", dto.value("message", dto.value("error", std::string()))}, {"Mode", "Launcher"} };
+        return AllocResult(result.dump());
+    }
+
+    std::string status = dto.value("status", std::string());
+    result["Success"] = status == "saved" || status == "queued";
+    result["Status"] = status;
+    result["ScoreId"] = id;
+    result["PlayerName"] = dto.contains("playerName") && dto["playerName"].is_string() ? dto["playerName"] : json(nullptr);
     result["Message"] = dto.value("message", json(nullptr));
     result["Mode"] = "Launcher";
     return AllocResult(result.dump());

@@ -4,6 +4,17 @@ All notable changes to the Arcademia Leaderboards SDK for C++ are
 documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [1.2.0] - 2026-09-24
+
+### Added
+- `arcademia_leaderboards_set_player_name` to name a score after it was submitted, so players can either type a name or claim the score to their account.
+- `PlayerName`, `ScoreId` and `ClaimUrl` in the `request_claim` result. `PlayerName` is the account's username when a claim succeeds.
+- `Metadata` on every score row, the JSON you submitted with the score.
+- `request_claim` now works in sandbox mode. You get a link to open in your browser instead of a QR code, written to stderr and the debugger output, and passed to a callback set with the new `arcademia_leaderboards_set_claim_link_callback`.
+
+### Changed
+- `request_claim` no longer returns `rejected` straight away in sandbox mode.
+
 ## [1.1.0] - 2026-09-23
 
 ### Added

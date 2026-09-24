@@ -11,6 +11,11 @@ static std::string Prompt(const char* label, const std::string& current)
     return input.empty() ? current : input;
 }
 
+static void OnClaimLink(const char* claim_url, void*)
+{
+    std::cout << "Open this link to claim: " << claim_url << std::endl;
+}
+
 int main()
 {
     std::cout << "Arcademia Leaderboards Quick Start" << std::endl;
@@ -21,11 +26,12 @@ int main()
     std::string board_slug = Prompt("Board slug", "highscore");
 
     arcademia_leaderboards_configure(api_base.c_str(), api_key.c_str());
+    arcademia_leaderboards_set_claim_link_callback(OnClaimLink, nullptr);
 
     std::string last_score_id;
     for (;;)
     {
-        std::cout << std::endl << "1) Ping  2) Submit random score  3) Fetch test scores  4) Claim last score  5) Quit  6) Fetch every scope" << std::endl << "> ";
+        std::cout << std::endl << "1) Ping  2) Submit random score  3) Fetch test scores  4) Claim last score  5) Quit  6) Fetch every scope  7) Name last score" << std::endl << "> ";
         std::string choice;
         std::getline(std::cin, choice);
 
@@ -38,7 +44,7 @@ int main()
         else if (choice == "2")
         {
             long long value = 100 + (rand() % 99900);
-            const char* result = arcademia_leaderboards_submit_score(board_slug.c_str(), value, "REX", nullptr, nullptr);
+            const char* result = arcademia_leaderboards_submit_score(board_slug.c_str(), value, nullptr, "{\"level\":3,\"character\":\"rex\"}", nullptr);
             std::cout << result << std::endl;
             std::string text = result;
             auto key = text.find("\"ScoreId\":\"");
@@ -80,6 +86,18 @@ int main()
                 std::cout << result << std::endl;
                 arcademia_leaderboards_free(result);
             }
+        }
+        else if (choice == "7")
+        {
+            if (last_score_id.empty())
+            {
+                std::cout << "Submit a score first." << std::endl;
+                continue;
+            }
+            std::string name = Prompt("Player name", "REX");
+            const char* result = arcademia_leaderboards_set_player_name(last_score_id.c_str(), name.c_str());
+            std::cout << result << std::endl;
+            arcademia_leaderboards_free(result);
         }
     }
 

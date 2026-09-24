@@ -56,7 +56,7 @@ other native DLL.
 | When | Game was started by the Arcademia launcher on an arcade machine | Anywhere else: your dev machine, a build you're testing, CI |
 | Auth | Nothing you set. The launcher and the machine's credentials handle it | Your game's API key |
 | Scores land on | The live, public leaderboard | The **Test area** only. Visible to you in the dashboard, never public |
-| Claiming | Works, shows a QR popup on the cabinet | Not available (`request_claim` returns `rejected` immediately) |
+| Claiming | Shows a QR code on the cabinet | Gives you a link to open in your browser instead of a QR code |
 
 You don't choose the mode yourself. The library figures it out
 automatically by checking for environment variables the launcher sets on
@@ -161,11 +161,13 @@ Submits a score to the named board.
 - `value`: a whole number. For time-based boards, submit milliseconds,
   the dashboard formats it back for display.
 - `player_name`: free text, any characters, up to 32 (pass `nullptr` to
-  default to `"Player"`). Server-side profanity filtering applies.
-- `metadata_json`: an optional raw JSON object string (max 2 KB, pass
-  `nullptr` to omit), e.g. `"{\"level\":\"3-2\"}"`. It gets stored
-  alongside the score and isn't shown to players, useful for support or
-  anti-cheat review later.
+  default to `"Player"`). Server-side profanity filtering applies. Pass
+  `nullptr` if the player might claim the score instead (see *Typed name
+  or account* below).
+- `metadata_json`: an optional JSON object string (max 2 KB, pass
+  `nullptr` to omit), e.g. `"{\"level\":\"3-2\"}"`. It's stored with the
+  score and comes back as `Metadata` on every score your game reads, so
+  you can show things like the level or character next to each entry.
 - `score_id`: pass `nullptr` normally, a GUID gets generated for you.
   Supplying your own lets you safely retry a submission (say, after a
   network blip) without creating a duplicate, since the server
@@ -178,17 +180,71 @@ treat `"queued"` the same as `"submitted"`.
 
 Keep the returned `ScoreId` if you plan to offer a claim next.
 
-### `const char* arcademia_leaderboards_request_claim(const char* score_id)`
-Offers a just-submitted live score for the player to save to their
-Arcademia account. This shows a QR code popup on the cabinet and won't
-return until the player scans it, cancels, or about five minutes pass, so
-call it from a "Save my score?" prompt handler rather than your main
-loop.
+### Typed name or account
 
-This only really means anything in launcher mode. In sandbox mode it just
-returns immediately with `Status = "rejected"`, since there's no cabinet
-to show a QR code on and test scores can't be claimed anyway. Feel free
-to call it unconditionally.
+Once a score is submitted, the player can put a name on it in one of two
+ways. Offer them the choice and use whichever they pick:
+
+1. **Type a name in your game.** Pass it to `submit_score`, or call
+   `set_player_name` afterwards if you submitted first.
+2. **Save it to their Arcademia account.** Call `request_claim`. The
+   player scans a QR code on the cabinet and signs in on their phone, and
+   the result's `PlayerName` is their account's username so your game can
+   show it.
+
+They don't need to do both. A claimed score always shows the account's
+username. If the player cancels the QR code or it times out, the score
+is still there under `"Player"`, so you can fall back to your own name
+entry and call `set_player_name`.
+
+When you read scores back, each row's `Claimed` field is `true` when
+`PlayerName` is a verified Arcademia username, and `false` when it's a
+name someone typed in a game.
+
+### `const char* arcademia_leaderboards_set_player_name(const char* score_id, const char* player_name)`
+Sets or changes the name on a score submitted earlier in the same play
+session. The same name rules apply as for `submit_score`.
+
+```json
+{ "Success": true, "Status": "saved", "ScoreId": "...", "PlayerName": "MAL", "Message": null, "Mode": "Launcher" }
+```
+
+`Status` is `"saved"`, `"queued"` (the cabinet is offline and the score
+hasn't uploaded yet, the new name will go with it), `"rejected"` or
+`"error"`. Claimed scores can't be renamed.
+
+### `const char* arcademia_leaderboards_request_claim(const char* score_id)`
+Lets the player save a score to their Arcademia account instead of typing
+a name. On a cabinet, the launcher shows a QR code. The call blocks until
+the player scans it, cancels, or about five minutes pass, so call it from
+a worker thread or a prompt handler rather than your main loop.
+
+```json
+{ "Success": true, "Status": "saved", "ScoreId": "...", "PlayerName": "Malphatt", "Message": null, "Mode": "Launcher" }
+```
+
+`Status` is `"saved"`, `"cancelled"`, `"expired"`, `"rejected"`,
+`"offline"` or `"error"`. When it's `"saved"`, `PlayerName` is the
+player's Arcademia username.
+
+In sandbox mode there's no cabinet to show a QR code on, so you get a
+link instead. It's written to stderr and the debugger output, and passed
+to your callback if you've set one. Open it in your browser, sign in and
+save the score, and the call returns just like it would on a cabinet.
+
+### `void arcademia_leaderboards_set_claim_link_callback(arcademia_leaderboards_claim_link_callback callback, void* user_data)`
+Sets a function to receive the sandbox claim link, e.g. to show it on
+screen. It's called on the thread that called `request_claim`. Pass
+`nullptr` to clear it.
+
+```cpp
+static void OnClaimLink(const char* claim_url, void* user_data)
+{
+    std::cout << "Claim it here: " << claim_url << std::endl;
+}
+
+arcademia_leaderboards_set_claim_link_callback(OnClaimLink, nullptr);
+```
 
 ### `const char* arcademia_leaderboards_get_scores(const char* board_slug, int scope, const char* ranks, const char* player_score_id, int before, int after, int best_per_player)`
 Loads a leaderboard to show in your game. You decide what comes back:
@@ -222,14 +278,18 @@ arcademia_leaderboards_free(json);
 {
   "Success": true, "Mode": "Launcher", "Scope": "Country", "BestPerPlayer": true,
   "BoardSlug": "highscore", "BoardName": "High Score", "Total": 118,
-  "Scores": [ { "Rank": 1, "PlayerName": "REX", "Value": 99999, "AchievedAt": "...", "Claimed": false, "IsPlayer": false, "MachineName": "Bartik", "SiteName": "University of Lincoln", "Country": "United Kingdom" } ],
+  "Scores": [ { "Rank": 1, "PlayerName": "REX", "Value": 99999, "AchievedAt": "...", "Claimed": false, "IsPlayer": false, "MachineName": "Bartik", "SiteName": "University of Lincoln", "Country": "United Kingdom", "Metadata": "{\"level\": \"3-2\"}" } ],
   "Player": { "Rank": 42, "PlayerName": "MAL", "IsPlayer": true, "...": "..." },
   "Around": [ "ranks 40 to 44, in order" ]
 }
 ```
 
 `Player` is `null` if you didn't pass a score id or the score isn't in
-that scope. For a screen with a tab per scope, call it once per scope.
+that scope. `Metadata` is the JSON object you submitted with the score,
+as a string (the server may tidy up the spacing), or `null` if there was
+none. Parse it with the same JSON library you read the result with. In
+best-per-player mode it comes from each player's best run. It's only
+returned to your game, never shown on the public leaderboard pages. For a screen with a tab per scope, call it once per scope.
 In sandbox mode it reads your test scores, and every scope returns the
 same list because test scores don't come from a cabinet.
 

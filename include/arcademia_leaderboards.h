@@ -54,7 +54,17 @@ ARCADEMIA_API const char* arcademia_leaderboards_get_scores(
     int after,
     int best_per_player);
 
+typedef void (*arcademia_leaderboards_claim_link_callback)(const char* claim_url, void* user_data);
+
+ARCADEMIA_API void arcademia_leaderboards_set_claim_link_callback(
+    arcademia_leaderboards_claim_link_callback callback,
+    void* user_data);
+
 ARCADEMIA_API const char* arcademia_leaderboards_request_claim(const char* score_id);
+
+ARCADEMIA_API const char* arcademia_leaderboards_set_player_name(
+    const char* score_id,
+    const char* player_name);
 
 ARCADEMIA_API void arcademia_leaderboards_free(const char* ptr);
 
